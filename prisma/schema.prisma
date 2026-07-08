@@ -1,0 +1,358 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CANDIDATE
+  ADMIN
+}
+
+enum Plan {
+  FREE
+  PRO
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  role          Role      @default(CANDIDATE)
+  plan          Plan      @default(FREE)
+  proExpiresAt  DateTime?
+  isSuspended   Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  refreshTokens     RefreshToken[]
+  resumes           Resume[]
+  interviewSessions InterviewSession[]
+  orders            Order[]
+  flagsCreated      ContentFlag[] @relation("FlaggedBy")
+  flagsResolved     ContentFlag[] @relation("ResolvedBy")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) // this is the JWT's `jti`
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    // sha256 of the signed refresh JWT, defense in depth
+  revoked   Boolean   @default(false)
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model AIRequestLog {
+  id               String   @id @default(uuid())
+  provider         String   // "mock" | "gemini" | "groq" | "openai"
+  model            String
+  operation        String   // AIOperation, e.g. "analyzeResume"
+  success          Boolean
+  errorMessage     String?
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  costUsd          Float    @default(0)
+  latencyMs        Int
+  retryAttempt     Int      @default(0) // 0 = succeeded/failed on first try
+  createdAt        DateTime @default(now())
+
+  @@index([provider, operation])
+  @@index([createdAt])
+  @@map("ai_request_logs")
+}
+
+enum ResumeStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Resume {
+  id       String @id @default(uuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  label      String
+  isPrimary  Boolean @default(false)
+  targetRole String?
+
+  status        ResumeStatus @default(PROCESSING)
+  failureReason String?
+
+  originalFilename   String
+  mimeType            String
+  fileSizeBytes       Int
+  cloudinaryPublicId  String
+  cloudinaryUrl       String
+  extractionMethod    String  // "text" | "ocr"
+  extractedText       String? @db.Text
+
+  analysis ResumeAnalysis?
+
+  interviewSessions InterviewSession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, isPrimary])
+  @@index([userId, createdAt])
+  @@map("resumes")
+}
+
+model ResumeAnalysis {
+  id       String @id @default(uuid())
+  resumeId String @unique
+  resume   Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  atsScore        Int
+  summary         String
+  detectedRole    String
+  experienceLevel String // "entry" | "junior" | "mid" | "senior" | "lead"
+
+  skills          String[]
+  technicalSkills String[]
+  softSkills      String[]
+  missingKeywords String[]
+  certifications  String[]
+
+  educationReview  String
+  projectReview    String
+  experienceReview String
+
+  grammarIssues    String[]
+  formattingIssues String[]
+
+  strengths          String[]
+  weaknesses         String[]
+  suggestions        String[]
+  rewriteSuggestions Json // ResumeRewriteSuggestion[]
+
+  aiProvider String
+  aiModel    String
+  costUsd    Float @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@map("resume_analyses")
+}
+
+enum InterviewSessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+  TERMINATED
+}
+
+model InterviewSession {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Optional: lets a session inherit targetRole/difficulty from a resume's ATS analysis.
+  resumeId String?
+  resume   Resume? @relation(fields: [resumeId], references: [id], onDelete: SetNull)
+
+  targetRole         String
+  interviewType      String  @default("technical") // "technical" | "behavioral" | "system_design" | "mixed"
+  difficulty         String  // "easy" | "medium" | "hard" - the session's base difficulty
+  mode               String  @default("TEXT") // "TEXT" | "VOICE" | "REALTIME"
+  jobDescriptionText String? @db.Text
+
+  status             InterviewSessionStatus @default(IN_PROGRESS)
+  roomState          String                 @default("DEVICE_CHECK") // "DEVICE_CHECK" | "IN_PROGRESS" | "COMPLETED" | "TERMINATED"
+  totalQuestions     Int                    @default(5)
+  minQuestions       Int                    @default(5)
+  maxQuestions       Int                    @default(15)
+  minDurationMinutes Int                    @default(10)
+  maxDurationMinutes Int                    @default(30)
+
+  // Integrity & Anti-Cheating Tracking (Authoritative 3-warning system)
+  warningCount      Int     @default(0)
+  maxWarnings       Int     @default(3)
+  integrityStatus   String  @default("PASSED") // "PASSED" | "FLAGGED" | "TERMINATED"
+  terminationReason String?
+
+  // Filled in once session completes
+  overallScore   Int?
+  strengths      String[]
+  weaknesses     String[]
+  recommendation String?
+
+  questions  InterviewQuestion[]
+  events     InterviewIntegrityEvent[]
+  messages   InterviewMessage[]
+  evaluation InterviewEvaluation?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@map("interview_sessions")
+}
+
+model InterviewIntegrityEvent {
+  id        String           @id @default(uuid())
+  sessionId String
+  session   InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  type      String   // "TAB_SWITCH" | "WINDOW_BLUR" | "SCREEN_SHARE_STOPPED" | "CAMERA_DISABLED" | "MICROPHONE_DISABLED" | "FULLSCREEN_EXIT"
+  severity  String   // "LOW" | "MEDIUM" | "HIGH"
+  reason    String
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([sessionId, createdAt])
+  @@map("interview_integrity_events")
+}
+
+model InterviewMessage {
+  id        String           @id @default(uuid())
+  sessionId String
+  session   InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  speaker   String   // "AI" | "CANDIDATE"
+  text      String   @db.Text
+  order     Int
+  topic     String?
+  isFollowUp Boolean @default(false)
+
+  confidenceScore Float?
+  technicalDepth  Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, order])
+  @@map("interview_messages")
+}
+
+model InterviewEvaluation {
+  id        String           @id @default(uuid())
+  sessionId String           @unique
+  session   InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  overallScore        Int // 0-100
+  technicalScore      Int // 0-100
+  problemSolvingScore Int // 0-100
+  communicationScore  Int // 0-100
+  confidenceScore     Int // 0-100
+  depthScore          Int // 0-100
+
+  strengths             String[]
+  weaknesses            String[]
+  technicalGaps         String[]
+  communicationFeedback String   @db.Text
+  recommendedTopics     String[]
+  evidenceSummary       String   @db.Text
+  integritySummary      String   @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@map("interview_evaluations")
+}
+
+model InterviewQuestion {
+  id        String           @id @default(uuid())
+  sessionId String
+  session   InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  order        Int
+  questionText String
+  category     String
+  difficulty   String
+  isFollowUp   Boolean @default(false)
+
+  answerText String?   @db.Text
+  answeredAt DateTime?
+
+  // Filled in by aiProvider.evaluateAnswer() right after the answer is recorded.
+  score                   Int?
+  evaluationStrengths     String[]
+  evaluationImprovements  String[]
+  idealAnswerSummary      String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@unique([sessionId, order])
+  @@index([sessionId])
+  @@map("interview_questions")
+}
+
+enum OrderStatus {
+  CREATED
+  PAID
+  FAILED
+}
+
+model Order {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  razorpayOrderId   String  @unique
+  razorpayPaymentId String?
+
+  amountPaise Int
+  currency    String @default("INR")
+
+  status           OrderStatus @default(CREATED)
+  planDurationDays Int
+
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+
+  @@index([userId])
+  @@map("orders")
+}
+
+enum ContentFlagType {
+  RESUME
+  INTERVIEW_SESSION
+}
+
+enum ContentFlagStatus {
+  OPEN
+  RESOLVED
+}
+
+// Polymorphic-by-convention rather than a real DB relation: targetId points
+// at either a Resume.id or an InterviewSession.id depending on `type`, with
+// no foreign key. This keeps moderation decoupled from those tables (a flag
+// survives even if the underlying content is later deleted) and avoids two
+// nullable FK columns for what's fundamentally an admin-only audit trail.
+model ContentFlag {
+  id     String          @id @default(uuid())
+  type   ContentFlagType
+  targetId String
+
+  reason String @db.Text
+  status ContentFlagStatus @default(OPEN)
+
+  flaggedByUserId String
+  flaggedByUser   User   @relation("FlaggedBy", fields: [flaggedByUserId], references: [id], onDelete: Cascade)
+
+  resolvedByUserId String?
+  resolvedByUser   User?   @relation("ResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  resolutionNote   String? @db.Text
+  resolvedAt       DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([type, targetId])
+  @@index([status])
+  @@map("content_flags")
+}

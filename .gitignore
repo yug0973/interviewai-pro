@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.local
+*.log
+
+# BullMQ/AI providers never write here; this is only for OCR's tesseract.js,
+# which caches its downloaded language traineddata files locally on first use.
+.tesseract-cache/
+
+# Archives & Backups
+*.zip
+*.tar.gz
+
+# Editor & OS
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "IBM Plex Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+
+  --color-void: #090a0e;
+  --color-surface: #101318;
+  --color-surface-raised: #161a22;
+  --color-surface-card: #12151c;
+  --color-line: #20242e;
+  --color-line-strong: #2e3544;
+  --color-signal: #f3f4f6;
+  --color-static: #9ca3af;
+  --color-static-dim: #64748b;
+  --color-alert: #f97316;
+  --color-alert-dim: #c2410c;
+  --color-confirm: #10b981;
+  --color-confirm-dim: #047857;
+  --color-info: #6366f1;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    background: var(--color-void);
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-void);
+    color: var(--color-signal);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: var(--color-alert);
+    color: var(--color-void);
+  }
+
+  /* Custom sleek dark scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-void);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-static-dim);
+  }
+}
+
+@layer components {
+  .signal-sweep {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(249, 115, 22, 0.25) 50%,
+      transparent 100%
+    );
+    animation: sweep 6s ease-in-out infinite;
+  }
+
+  @keyframes sweep {
+    0% {
+      transform: translateX(-120%);
+    }
+    100% {
+      transform: translateX(340%);
+    }
+  }
+
+  .pulse-ring {
+    animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+  }
+
+  @keyframes pulse-ring {
+    0% {
+      transform: scale(0.95);
+      box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.6);
+    }
+    70% {
+      transform: scale(1);
+      box-shadow: 0 0 0 10px rgba(249, 115, 22, 0);
+    }
+    100% {
+      transform: scale(0.95);
+      box-shadow: 0 0 0 0 rgba(249, 115, 22, 0);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-sweep, .pulse-ring {
+    animation: none;
+  }
+}

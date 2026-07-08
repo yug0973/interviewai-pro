@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+frontend
+frontend.zip
+dist
+.git
+.gitignore
+.vscode
+*.md
+.env
+.env.example
+npm-debug.log
